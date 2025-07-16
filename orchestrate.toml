@@ -1,0 +1,78 @@
+###############################################################################
+# orchestrate.toml — self-contained demo
+#
+# Works on any vanilla macOS/Linux box: only needs /bin/bash, Python ≥3.7
+# (for the built-in HTTP server), coreutils (`sleep`, `tail`), and `nc`
+# (netcat) for the simple port-readiness probe.
+#
+# ─── DAG shape ───────────────────────────────────────────────────────────────
+#   setup  ─►  web  ─►  tests
+#                    └►  watcher  (runs forever)
+###############################################################################
+
+[defaults]
+# Where commands run when a task omits `workdir`
+workdir = "."          # current directory; change if you like
+
+###############################################################################
+# 1. quick “oneshot” that just succeeds after a short delay
+###############################################################################
+[[task]]
+name = "setup"
+kind = "oneshot"       # exits quickly; downstream tasks can start
+cmd  = "sleep 1 && echo '[setup] done'"
+
+###############################################################################
+# 2. long-running HTTP service
+#    – becomes READY when tcp port 9000 is open
+###############################################################################
+[[task]]
+name       = "web"
+kind       = "service"
+cmd        = "uv run python -m http.server 9781"
+depends_on = ["setup"]
+workdir    = "."        # override if you want a custom document root
+ready_cmd  = "bash -c 'nc -z localhost 9781'"
+
+###############################################################################
+# 3. another “oneshot” that waits for the web service, then runs
+###############################################################################
+[[task]]
+name       = "tests"
+kind       = "oneshot"
+cmd        = "sleep 2 && echo '[tests] integration suite okay'"
+depends_on = ["web"]
+
+###############################################################################
+# 4. background daemon that keeps the session alive (hypothetical log watcher)
+###############################################################################
+[[task]]
+name       = "watcher"
+kind       = "daemon"
+cmd        = "tail -f /dev/null"
+depends_on = ["web"]
+
+[[task]]
+name       = "tests-debugger"
+kind       = "oneshot"
+cmd        = "uv run trial.py"
+depends_on = ["tests"]
+
+[[task]]
+name       = "tests-debugger-2"
+kind       = "oneshot"
+cmd        = "uv run trial.py"
+depends_on = ["tests"]
+
+
+###############################################################################
+# 6. long-running HTTP service
+#    – becomes READY when tcp port 9000 is open
+###############################################################################
+[[task]]
+name       = "web-2"
+kind       = "service"
+cmd        = "uv run python -m http.server 9782"
+depends_on = ["setup", "tests-debugger", "tests-debugger-2"]
+workdir    = "."        # override if you want a custom document root
+ready_cmd  = "bash -c 'nc -z localhost 9782'"
