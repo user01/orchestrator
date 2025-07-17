@@ -21,7 +21,7 @@ import re
 from .backend import OrchestratorBackend, load_config, format_duration, State, Kind
 
 _ANSI_ESCAPE = re.compile(r'\x1B\[[0-?]*[ -/]*[@-~]')
-  
+
 # Custom RichLog subclass that toggles auto_scroll based on user scrolls
 class LogView(_RichLog):
     """RichLog that disables auto-scroll on user scroll-up, re-enables at bottom."""
@@ -266,13 +266,13 @@ class OrchApp(App):
             self._backend_task.cancel()
         # Close any open PTY masters
         for tr in self.backend.rt.values():
-            fd = getattr(tr, "pty_master", -1)
+            fd = getattr(tr, "pty_primary", -1)
             if fd >= 0:
                 try:
                     os.close(fd)
                 except Exception:
                     pass
-                tr.pty_master = -1
+                tr.pty_primary = -1
         # Exit the app immediately
         self.exit()
 
@@ -316,7 +316,7 @@ class OrchApp(App):
                 txt = Text(ln)
             self.log_view.write(txt)
         # (Removed unconditional auto-scroll here to respect manual scrolling)
-    
+
 
 
     async def on_button_pressed(self, message: Button.Pressed) -> None:
@@ -359,12 +359,12 @@ class OrchApp(App):
         task_name = self.filter_task
         if task_name and task_name != "All":
             task_rt = self.backend.rt.get(task_name)
-            if task_rt and task_rt.proc and task_rt.pty_master >= 0:
+            if task_rt and task_rt.proc and task_rt.pty_primary >= 0:
                 # Add a newline to simulate pressing enter
                 data_to_send = (content + "\n").encode()
                 try:
                     loop = asyncio.get_running_loop()
-                    await loop.run_in_executor(None, os.write, task_rt.pty_master, data_to_send)
+                    await loop.run_in_executor(None, os.write, task_rt.pty_primary, data_to_send)
                     self.stdin_input.value = "" # Clear input after sending
                     self.stdin_input.focus() # Refocus input
                 except Exception as e:
