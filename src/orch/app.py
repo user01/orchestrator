@@ -25,7 +25,7 @@ _ANSI_ESCAPE = re.compile(r'\x1B\[[0-?]*[ -/]*[@-~]')
 # Custom RichLog subclass that toggles auto_scroll based on user scrolls
 class LogView(_RichLog):
     """RichLog that disables auto-scroll on user scroll-up, re-enables at bottom."""
-    async def on_key(self, event: events.Key) -> None:
+    async def on_key(self, event) -> None:
         # Only when this widget has focus
         if self.has_focus:
             if event.key in ("up", "pageup", "home"):
@@ -34,20 +34,6 @@ class LogView(_RichLog):
                 if self.scroll_offset.y >= self.max_scroll_y:
                     self.auto_scroll = True
         await super().on_key(event)
-
-    async def on_mouse_scroll_up(self, event: events.MouseScrollUp) -> None:
-        # Only consider scrolls over this widget
-        if getattr(event, 'widget', None) is self:
-            self.auto_scroll = False
-        await super().on_mouse_scroll_up(event)
-
-    async def on_mouse_scroll_down(self, event: events.MouseScrollDown) -> None:
-        if getattr(event, 'widget', None) is self:
-            await super().on_mouse_scroll_down(event)
-            if self.scroll_offset.y >= self.max_scroll_y:
-                self.auto_scroll = True
-        else:
-            await super().on_mouse_scroll_down(event)
 
 
 class OrchApp(App):
