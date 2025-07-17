@@ -35,7 +35,8 @@ class LogView(_RichLog):
             elif event.key in ("down", "pagedown", "end"):
                 if self.scroll_offset.y >= self.max_scroll_y:
                     self.auto_scroll = True
-        await super().on_key(event)
+        # Delegate to default key handler for scrolling and other key events
+        await super().handle_key(event)
 
 
 class OrchApp(App):
