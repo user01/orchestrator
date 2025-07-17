@@ -170,9 +170,12 @@ class OrchApp(App):
         omitted and only content is shown.
         """
         while True:
-            # Pull raw log line from backend, strip any ANSI codes
+            # Pull raw log line from backend, strip ANSI and control codes
             raw_line = await self.backend.log_queue.get()
-            line = _ANSI_ESCAPE.sub('', raw_line)
+            # Remove ANSI escape sequences
+            clean = _ANSI_ESCAPE.sub('', raw_line)
+            # Remove any remaining non-printable/control characters
+            line = ''.join(ch for ch in clean if ch.isprintable() or ch.isspace())
             # record every log line
             self.all_logs.append(line)
             # Only process if matches current filter (or show all)
@@ -525,6 +528,8 @@ def main() -> None:
     if len(sys.argv) > 1 and not sys.argv[1].startswith("--"):
         config = Path(sys.argv[1])
     OrchApp(config).run()
+    # Reset terminal ANSI formatting on exit to clear any stray styles
+    print("\x1b[0m", end="")
 
 
 if __name__ == "__main__":
