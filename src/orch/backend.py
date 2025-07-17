@@ -93,13 +93,19 @@ class TaskRt:
 def load_config(path: Path) -> dict[str, TaskCfg]:
     raw = tomllib.loads(path.read_text())
     defaults = raw.get("defaults", {})
+    # Optional command prefix: run before each task's cmd, joined with &&
+    prefix_cmd = defaults.get("cmd_prefix", "")
     def_wd = Path(defaults.get("workdir", ".")).expanduser().resolve()
     out: dict[str, TaskCfg] = {}
-    for row in raw["task"]:
-        out[row["name"]] = TaskCfg(
-            name=row["name"],
+    for row in raw.get("task", []):
+        # Apply optional prefix to the task command
+        cmd = row.get("cmd", "")
+        if prefix_cmd:
+            cmd = f"{prefix_cmd} && {cmd}"
+        out[row.get("name", "")] = TaskCfg(
+            name=row.get("name", ""),
             kind=Kind(row.get("kind", "oneshot")),
-            cmd=row["cmd"],
+            cmd=cmd,
             depends_on=row.get("depends_on", []),
             ready_cmd=row.get("ready_cmd"),
             workdir=Path(row.get("workdir", def_wd)).expanduser().resolve(),

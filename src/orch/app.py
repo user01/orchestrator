@@ -18,6 +18,8 @@ from textual.widgets import RichLog as _RichLog
 from textual.containers import Horizontal
 from textual.reactive import reactive
 import re
+import time
+from datetime import datetime
 from .backend import OrchestratorBackend, load_config, format_duration, State, Kind
 
 _ANSI_ESCAPE = re.compile(r'\x1B\[[0-?]*[ -/]*[@-~]')
@@ -93,6 +95,10 @@ class OrchApp(App):
         # Background task references for clean shutdown
         self._backend_task: asyncio.Task | None = None
         self._log_watcher_task: asyncio.Task | None = None
+        # Timestamping: track last log time for periodic timestamps
+        self._last_log_time: float | None = None
+        # Seconds between timestamp inserts (interval for time-only stamps)
+        self._timestamp_interval: float = 60.0
 
     async def on_mount(self) -> None:
         """
@@ -156,9 +162,11 @@ class OrchApp(App):
         """
         Watches for new log entries and updates the log view.
 
-        This method runs in a background task and continuously pulls log entries
-        from the backend's log queue. It stores all logs and appends them to the
-        log view, filtered by the currently selected task.
+        Continuously pulls log entries from the backend's log queue, stores them,
+        and writes them to the log view. Inserts a full date/time stamp at the
+        first log and time-only stamps periodically. In all-tasks mode, logs are
+        prefixed with a colored task label; in single-task mode, labels are
+        omitted and only content is shown.
         """
         while True:
             # Pull raw log line from backend, strip any ANSI codes
@@ -166,28 +174,44 @@ class OrchApp(App):
             line = _ANSI_ESCAPE.sub('', raw_line)
             # record every log line
             self.all_logs.append(line)
-            # show only if matches current filter (or show all)
+            # Only process if matches current filter (or show all)
             if self.filter_task is None or line.startswith(f"[{self.filter_task}]"):
-                # Preserve scroll if not at bottom
+                # Timestamp insertion: initial full date/time or time-only after interval
+                now_ts = time.time()
+                if (self._last_log_time is None) or (now_ts - self._last_log_time >= self._timestamp_interval):
+                    # Full timestamp on first log, then time-only
+                    if self._last_log_time is None:
+                        stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    else:
+                        stamp = datetime.now().strftime("%H:%M:%S")
+                    ts_txt = Text(stamp, style="bold dim")
+                    self.log_view.write(ts_txt)
+                    self._last_log_time = now_ts
+                # Preserve scroll position
                 offset_y = self.log_view.scroll_offset.y
                 max_y = self.log_view.max_scroll_y
                 at_bottom = (offset_y >= max_y)
-                # Split label and rest
+                # Determine label and content
                 end = line.find("]")
                 if end != -1:
                     label = line[1:end]
                     rest = line[end+1:]
-                    padded = label.ljust(self.max_label_len)
-                    # Build full line
+                else:
+                    label = None
+                    rest = line
+                # Render line depending on filter mode
+                if self.filter_task is None:
+                    # All tasks: show label padded and colored
+                    padded = (label or "").ljust(self.max_label_len)
                     full = f"[{padded}]{rest}"
                     txt = Text(full)
-                    # Apply task color only to label portion
-                    if label in self.backend.rt:
+                    if label and label in self.backend.rt:
                         txt.stylize(self.backend.rt[label].colour, 0, len(padded) + 2)
                 else:
-                    txt = Text(line)
+                    # Single-task mode: only show content, no label prefix
+                    txt = Text(rest)
                 self.log_view.write(txt)
-                # (auto-scrolling is handled by RichLog.auto_scroll)
+                # auto-scroll is managed by RichLog.auto_scroll
 
     def refresh_tasks(self) -> None:
         """
@@ -282,7 +306,8 @@ class OrchApp(App):
         Called when the `filter_task` reactive attribute changes.
 
         This method re-renders the log view to show only the logs for the newly
-        selected task. It also shows or hides the stdin input container depending
+        selected task. In single-task mode, it displays a colored header with the
+        task name. It also shows or hides the stdin input container depending
         on whether the selected task is running.
 
         Args:
@@ -299,7 +324,15 @@ class OrchApp(App):
 
         self.stdin_container.display = should_show
 
+        # Clear view and render header if in single-task mode
         self.log_view.clear()
+        if new is not None and new != "All":
+            # Show task title as header in its color
+            colour = self.backend.rt.get(new).colour if self.backend.rt.get(new) else ""
+            header = Text(f"=== {new} ===", style=f"bold {colour}")
+            self.log_view.write(header)
+            # Blank line after header
+            self.log_view.write(Text(""))
         # Render all matching logs
         filtered = [ln for ln in self.all_logs if new is None or ln.startswith(f"[{new}]")]
         for ln in filtered:
@@ -307,11 +340,16 @@ class OrchApp(App):
             if end != -1:
                 label = ln[1:end]
                 rest = ln[end+1:]
-                padded = label.ljust(self.max_label_len)
-                full = f"[{padded}]{rest}"
-                txt = Text(full)
-                if label in self.backend.rt:
-                    txt.stylize(self.backend.rt[label].colour, 0, len(padded) + 2)
+                if new is None:
+                    # All tasks: show label padded and colored
+                    padded = label.ljust(self.max_label_len)
+                    full = f"[{padded}]{rest}"
+                    txt = Text(full)
+                    if label in self.backend.rt:
+                        txt.stylize(self.backend.rt[label].colour, 0, len(padded) + 2)
+                else:
+                    # Single-task: only content, no label prefix
+                    txt = Text(rest)
             else:
                 txt = Text(ln)
             self.log_view.write(txt)
@@ -424,6 +462,9 @@ def _generate_sample_toml() -> str:
 # Where commands run when a task omits `workdir`.
 # Defaults to the current directory.
 workdir = "."
+# Optional: a command to run before each task's `cmd`.
+# If set, each task's cmd will be prefixed with this command using `&&`.
+cmd_prefix = ""
 
 ###############################################################################
 # Tasks are defined as a list of tables.
