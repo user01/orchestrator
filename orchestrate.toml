@@ -13,6 +13,10 @@
 [defaults]
 # Where commands run when a task omits `workdir`
 workdir = "."          # current directory; change if you like
+# Timeout in seconds to wait for task completion or service readiness (default 30).
+ready_timeout = 30
+# Maximum log lines to retain in the UI (default 2000).
+max_lines = 2000
 
 ###############################################################################
 # 1. quick “oneshot” that just succeeds after a short delay
@@ -33,6 +37,10 @@ cmd        = "uv run python -m http.server 9781"
 depends_on = ["setup"]
 workdir    = "."        # override if you want a custom document root
 ready_cmd  = "bash -c 'nc -z localhost 9781'"
+# Per-task override of readiness timeout (seconds):
+# ready_timeout = 30
+# Per-task override of max log lines (default inherits from [defaults]):
+# max_lines = 2000
 
 ###############################################################################
 # 3. another “oneshot” that waits for the web service, then runs
@@ -63,7 +71,7 @@ name       = "tests-debugger-2"
 kind       = "oneshot"
 cmd        = "uv run trial.py"
 depends_on = ["tests"]
-
+max_lines  = 4
 
 ###############################################################################
 # 6. long-running HTTP service

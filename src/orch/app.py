@@ -109,7 +109,8 @@ class OrchApp(App):
         background tasks for running the orchestrator and watching for logs.
         """
         # Load configuration and start backend
-        cfgs = load_config(self.config)
+        cfgs, default_max_lines = load_config(self.config)
+        self.default_max_lines = default_max_lines
         self.backend = OrchestratorBackend(cfgs)
         # Add meta task at index 0 for showing all logs
         self.tasks = ["All"] + list(self.backend.rt.keys())
@@ -132,7 +133,14 @@ class OrchApp(App):
         # Set up log view
         # Give a custom name to avoid clashing with App.log property
         # Set up log view with auto-scroll and scroll-tracking
-        self.log_view = LogView(highlight=False, markup=False, name="log_view")
+        # Set up log view with a maximum number of lines to improve performance
+        # Set up log view with a cap on retained lines for performance
+        self.log_view = LogView(
+            highlight=False,
+            markup=False,
+            name="log_view",
+            max_lines=self.default_max_lines,
+        )
         self.log_view.auto_scroll = True
 
         # Add input and button for stdin
@@ -176,8 +184,11 @@ class OrchApp(App):
             clean = _ANSI_ESCAPE.sub('', raw_line)
             # Remove any remaining non-printable/control characters
             line = ''.join(ch for ch in clean if ch.isprintable() or ch.isspace())
-            # record every log line
+            # record every log line (trim oldest beyond max)
+            # record every log line (drop oldest beyond default max)
             self.all_logs.append(line)
+            if len(self.all_logs) > self.default_max_lines:
+                del self.all_logs[0]
             # Only process if matches current filter (or show all)
             if self.filter_task is None or line.startswith(f"[{self.filter_task}]"):
                 # Timestamp insertion: initial full date/time or time-only after interval
@@ -318,6 +329,13 @@ class OrchApp(App):
             old: The previous value of `filter_task`.
             new: The new value of `filter_task`.
         """
+        # Adjust log view max_lines per current task (default or per-task)
+        if new is None or new == "All":
+            self.log_view.max_lines = self.default_max_lines
+        else:
+            task_rt = self.backend.rt.get(new)
+            if task_rt:
+                self.log_view.max_lines = task_rt.cfg.max_lines
         # Show/hide stdin container
         should_show = False
         if new is not None and new != "All":
@@ -469,6 +487,8 @@ workdir = "."
 # Optional: a command to run before each task's `cmd`.
 # If set, each task's cmd will be prefixed with this command using `&&`.
 cmd_prefix = ""
+# Timeout in seconds to wait for task completion or service readiness (default 30).
+ready_timeout = 30
 
 ###############################################################################
 # Tasks are defined as a list of tables.
@@ -492,9 +512,12 @@ cmd        = "python -m http.server 9781"
 depends_on = ["setup"]
 # The working directory for this task. Overrides the default.
 workdir    = "."
-# A command to run to check if the service is ready.
-# The service is considered ready when this command exits with a status of 0.
+# A command to run to check if the service is ready (exit status 0 = READY).
 ready_cmd  = "bash -c 'nc -z localhost 9781'"
+# Optional per-task override of readiness timeout (seconds):
+# ready_timeout = 30
+# Optional per-task override of max log lines (default inherits [defaults]):
+# max_lines = 2000
 
 # Another "oneshot" task that waits for the web service to be ready.
 [[task]]
@@ -528,7 +551,7 @@ def main() -> None:
     if len(sys.argv) > 1 and not sys.argv[1].startswith("--"):
         config = Path(sys.argv[1])
     OrchApp(config).run()
-    # Reset terminal ANSI formatting on exit to clear any stray styles
+    # Reset terminal formatting on exit
     print("\x1b[0m", end="")
 
 

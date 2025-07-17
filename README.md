@@ -51,6 +51,8 @@ The configuration for the orchestrator is defined in a TOML file. The file consi
 The `defaults` table can be used to specify default values for the tasks. The following options are available:
 
 *   `workdir`: The working directory for the tasks. Defaults to the current directory.
+*   `ready_timeout`: Default number of seconds to wait for a task to complete. For services, applies to readiness probes; for oneshot tasks, applies to execution. Defaults to 30.
+*   `max_lines`: Default maximum number of log lines to retain in the UI. Per-task override available. Defaults to 2000.
 
 ### The `task` table
 
@@ -62,6 +64,8 @@ Each `task` table defines a single task to run. The following options are availa
 *   `depends_on`: A list of task names that this task depends on.
 *   `ready_cmd`: A command to run to check if a service task is ready.
 *   `workdir`: The working directory for the task. Overrides the default.
+*   `ready_timeout`: (Optional) Number of seconds to wait for this task to complete or become ready. Overrides `defaults.ready_timeout`.
+*   `max_lines`: (Optional) Maximum number of log lines to retain for this task in the UI. Overrides `defaults.max_lines`.
 
 ## Task kinds
 

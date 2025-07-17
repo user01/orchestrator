@@ -21,6 +21,8 @@ except ModuleNotFoundError:
 
 # ─────────── constants & palette ────────────
 READY_TIMEOUT = 30
+# Default maximum log lines to retain if not specified in config
+DEFAULT_MAX_LINES = 2000
 TAB10 = [
     "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
     "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf",
@@ -77,6 +79,14 @@ class TaskCfg:
     depends_on: list[str]
     ready_cmd: str | None
     workdir: Path
+    # Timeout for readiness probe or execution, in seconds
+    ready_timeout: float
+    # Maximum log lines to retain for this task
+    max_lines: int
+    # Timeout for readiness probe or task execution, in seconds
+    ready_timeout: float
+    # Maximum log lines to retain for this task
+    max_lines: int
 
 @dc.dataclass(slots=True)
 class TaskRt:
@@ -90,18 +100,22 @@ class TaskRt:
     pty_primary: int = -1
     pty_secondary: int = -1
 
-def load_config(path: Path) -> dict[str, TaskCfg]:
+def load_config(path: Path) -> tuple[dict[str, TaskCfg], int]:
     raw = tomllib.loads(path.read_text())
     defaults = raw.get("defaults", {})
-    # Optional command prefix: run before each task's cmd, joined with &&
+    # Optional command prefix: run before each task's cmd via &&
     prefix_cmd = defaults.get("cmd_prefix", "")
     def_wd = Path(defaults.get("workdir", ".")).expanduser().resolve()
+    # Default readiness timeout and max log lines
+    def_ready_timeout = float(defaults.get("ready_timeout", READY_TIMEOUT))
+    def_max_lines = int(defaults.get("max_lines", DEFAULT_MAX_LINES))
     out: dict[str, TaskCfg] = {}
     for row in raw.get("task", []):
-        # Apply optional prefix to the task command
         cmd = row.get("cmd", "")
         if prefix_cmd:
             cmd = f"{prefix_cmd} && {cmd}"
+        task_ready_timeout = float(row.get("ready_timeout", def_ready_timeout))
+        task_max_lines = int(row.get("max_lines", def_max_lines))
         out[row.get("name", "")] = TaskCfg(
             name=row.get("name", ""),
             kind=Kind(row.get("kind", "oneshot")),
@@ -109,8 +123,10 @@ def load_config(path: Path) -> dict[str, TaskCfg]:
             depends_on=row.get("depends_on", []),
             ready_cmd=row.get("ready_cmd"),
             workdir=Path(row.get("workdir", def_wd)).expanduser().resolve(),
+            ready_timeout=task_ready_timeout,
+            max_lines=task_max_lines,
         )
-    return out
+    return out, def_max_lines
 
 def topo_order(cfgs: dict[str, TaskCfg]) -> list[str]:
     indeg = {n: len(c.depends_on) for n, c in cfgs.items()}
